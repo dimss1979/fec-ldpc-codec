@@ -2,12 +2,21 @@
  * @file ldpc_matrix.c
  * @brief LDPC parity-check matrix (H) and generator matrix (G) utilities
  *
- * This file contains:
- *   - Gallager-type regular LDPC H-matrix generation
- *   - Systematic generator matrix G construction (via Gaussian elimination)
- *   - 4-cycle counting utility (analysis of LDPC structure)
+ * This module provides:
+ *   - Regular (w_c, w_r) Gallager-type parity-check matrix generation
+ *   - Systematic generator matrix construction via Gaussian elimination
+ *   - 4-cycle counting for structural LDPC code evaluation
  *
- * すべて行列演算は GF(2)（XOR）で行われます。
+ * All operations are over GF(2): addition = XOR, multiplication = AND.
+ *
+ * The implementation follows a classical LDPC workflow:
+ *
+ *    1) Construct H (parity-check matrix)
+ *    2) Derive G (systematic generator matrix)
+ *    3) Analyze H (cycle-4 count, degree constraints, etc.)
+ *
+ * This file supports LDPC research, coding-theory education, and BER
+ * simulation.
  */
 
 #include <stdio.h>
@@ -16,51 +25,57 @@
 
 #include "ldpc_matrix.h"
 
-/* ================================================================
- * 1. Generate regular (w_c, w_r) LDPC parity-check matrix (Gallager)
- * ----------------------------------------------------------------
- * Output: H[M][N] where M = N*(w_c/w_r)
- * H は (w_c × サブブロック数) 個の行ブロックで構成される。
- * 第一ブロックは連続した1、以降は列のランダムパーミュテーションで生成。
- * ================================================================ */
+/* ========================================================================== */
+/* 1. Gallager Regular LDPC Parity-Check Matrix Generation                    */
+/* -------------------------------------------------------------------------- */
+/*
+ * Construct an M×N regular LDPC matrix (column-weight wc, row-weight wr).
+ *
+ *   M = N * (wc / wr)
+ *
+ * Gallager's method:
+ *   - H is divided into wc row-blocks
+ *   - The first block is constructed deterministically
+ *   - Remaining blocks are random column-permutations of the first block
+ *
+ * Example (wc = 3, wr = 6):
+ *       [ B0 ]
+ *   H = [ P1(B0) ]
+ *       [ P2(B0) ]      where Pk is a different random permutation
+ *
+ * This yields a sparse, regular LDPC code with controllable 4-cycle behavior.
+ */
+/* ========================================================================== */
 void generate_Hmatrix(int **H, int N, int wc, int wr) {
   int i, j, k;
-  int M = (N * wc) / wr;   /* number of parity equations */
-  int block_rows = M / wc; /* rows per block (Gallager construction) */
+  int M = (N * wc) / wr;   /* number of check equations */
+  int block_rows = M / wc; /* rows per Gallager block   */
 
-  /* permutation buffer */
   int *perm = (int *)malloc(N * sizeof(int));
   if (!perm) {
     fprintf(stderr, "malloc failed in generate_Hmatrix\n");
     exit(1);
   }
 
-  /* Clear H matrix */
+  /* initialize H to zero */
   for (i = 0; i < M; i++)
     for (j = 0; j < N; j++)
       H[i][j] = 0;
 
-  /**
-   * Step 1: First block (identity-type pattern)
-   * Rows: 0 ... block_rows-1
-   * Columns: i*wr ... (i+1)*wr-1
-   */
-  for (i = 0; i < block_rows; i++) {
-    for (j = i * wr; j < (i + 1) * wr; j++) {
+  /* ---------------- Block 0: deterministic spacing of '1's ---------------- */
+  for (i = 0; i < block_rows; i++)
+    for (j = i * wr; j < (i + 1) * wr; j++)
       H[i][j] = 1;
-    }
-  }
 
-  /**
-   * Step 2: Remaining block rows are permutations of the first block
+  /* ----------- Block 1 ... wc-1: apply random column permutations ----------
    */
   for (i = 1; i < wc; i++) {
 
-    /* generate identity permutation */
+    /* identity permutation */
     for (j = 0; j < N; j++)
       perm[j] = j;
 
-    /* shuffle columns randomly */
+    /* Fisher-Yates shuffle */
     for (j = 0; j < N; j++) {
       int r = rand() % N;
       int tmp = perm[j];
@@ -68,36 +83,54 @@ void generate_Hmatrix(int **H, int N, int wc, int wr) {
       perm[r] = tmp;
     }
 
-    /* apply permuted columns over next block */
-    for (j = block_rows * i; j < block_rows * (i + 1); j++) {
-      for (k = 0; k < N; k++) {
+    /* apply permuted columns into block i */
+    for (j = block_rows * i; j < block_rows * (i + 1); j++)
+      for (k = 0; k < N; k++)
         H[j][k] = H[j - block_rows * i][perm[k]];
-      }
-    }
   }
 
   free(perm);
 }
 
-/* ================================================================
- * 2. Construct systematic generator matrix G from H
- * ----------------------------------------------------------------
- * Input:  H[M][N]
- * Output: G[K][N] where K = N - M
+/* ========================================================================== */
+/* 2. Systematic Generator Matrix Construction (G from H)                     */
+/* -------------------------------------------------------------------------- */
+/*
+ * Construct systematic generator matrix G (size K×N) from parity-check matrix
+ * H.
  *
- * 方法：
- *   [H^T | I_N] を拡張行列としてガウス消去し、
- *   下側 K 行から右側 N 列部分を取り出して G を作る。
+ * Definitions:
+ *      M = number of parity-check equations
+ *      N = code length
+ *      K = N − M  (information bits)
  *
- * 注意：元のアルゴリズムは温存（行・列交換も含む）
- * ================================================================ */
+ * Method:
+ *    Form augmented matrix:
+ *
+ *        X = [ H^T | I_N ]     (size N × (M+N))
+ *
+ *    Perform Gaussian elimination on X to obtain systematic form:
+ *
+ *        X → [ I_M | A ]
+ *             [  0  | G ]
+ *
+ *    The lower block yields the generator matrix G:
+ *
+ *        G = X[M..N-1][M..M+N-1]
+ *
+ * Notes:
+ *   - All operations are in GF(2)
+ *   - Some elimination steps require column swaps
+ *   - Swapping columns in X corresponds to swapping columns in H
+ *     to maintain the H·G^T = 0 constraint
+ */
+/* ========================================================================== */
 void generate_Gmatrix(int **H, int **G, int N, int wc, int wr) {
   int M = (N * wc) / wr;
-  int K = N - M;
 
   int i, j, k, l;
 
-  /* X: transformation matrix of size N × (M+N) */
+  /* X is the augmented matrix: [H^T | I] */
   int **X = (int **)malloc(N * sizeof(int *));
   for (i = 0; i < N; i++)
     X[i] = (int *)malloc((M + N) * sizeof(int));
@@ -111,24 +144,20 @@ void generate_Gmatrix(int **H, int **G, int N, int wc, int wr) {
     exit(1);
   }
 
-  /* ------------------------------------------------------------
-   * Step 1: Construct extended matrix [H^T | I]
-   * ------------------------------------------------------------ */
+  /* --------------------- Step 1: Build [H^T | I] ------------------------ */
   for (i = 0; i < N; i++) {
     for (j = 0; j < M; j++)
-      X[i][j] = H[j][i]; /* Left block = H^T */
-
+      X[i][j] = H[j][i]; /* left block */
     for (j = M; j < M + N; j++)
-      X[i][j] = (i == (j - M)) ? 1 : 0; /* Right block = identity */
+      X[i][j] = (i == (j - M)) ? 1 : 0; /* right block = I */
   }
 
-  /* ------------------------------------------------------------
-   * Step 2: Gaussian elimination on the left part of X
-   *         (Column swaps here DO NOT affect H)
-   * ------------------------------------------------------------ */
+  /* -------- Step 2: Gaussian elimination on left block (H^T part only) --- */
   for (j = 0; j < M; j++) {
+
+    /* If pivot missing → row swap OR column swap within X */
     if (X[j][j] == 0) {
-      /* Find pivot row */
+
       int pivot_found = 0;
       for (i = j + 1; i < N; i++) {
         if (X[i][j] == 1) {
@@ -139,7 +168,8 @@ void generate_Gmatrix(int **H, int **G, int N, int wc, int wr) {
           break;
         }
       }
-      /* If pivot row not found, swap columns */
+
+      /* If pivot still not found → swap columns inside X */
       if (!pivot_found) {
         for (k = M + N - 1; k > j; k--) {
           if (X[j][k] == 1) {
@@ -154,25 +184,20 @@ void generate_Gmatrix(int **H, int **G, int N, int wc, int wr) {
       }
     }
 
-    /* row elimination */
-    for (i = 0; i < N; i++) {
-      if (i != j && X[i][j] == 1) {
-        for (k = 0; k < (M + N); k++)
-          X[i][k] ^= X[j][k]; /* XOR */
-      }
-    }
+    /* Row elimination (GF(2)) */
+    for (i = 0; i < N; i++)
+      if (i != j && X[i][j] == 1)
+        for (k = 0; k < M + N; k++)
+          X[i][k] ^= X[j][k];
   }
 
-  /* ------------------------------------------------------------
-   * Step 3: Elimination that affects both X and H (column swaps)
-   * ------------------------------------------------------------ */
+  /* ------------- Step 3: Elimination on right block with H updates ------- */
   for (j = 2 * M; j < M + N; j++) {
 
     int pivot_row = j - M;
 
     if (X[pivot_row][j] == 0) {
 
-      /* find pivot row */
       int found = 0;
       for (i = pivot_row + 1; i < N; i++) {
         if (X[i][j] == 1) {
@@ -184,9 +209,9 @@ void generate_Gmatrix(int **H, int **G, int N, int wc, int wr) {
         }
       }
 
-      /* pivot row not found ⇒ column swap (affects H also) */
+      /* Still missing pivot → swap columns → update H accordingly */
       if (!found) {
-        for (k = (M + N) - 1; k > M - 1; k--) {
+        for (k = M + N - 1; k > M - 1; k--) {
           if (X[pivot_row][k] == 1) {
 
             /* swap columns in X */
@@ -196,7 +221,7 @@ void generate_Gmatrix(int **H, int **G, int N, int wc, int wr) {
               X[l][j] = col_buf[l];
             }
 
-            /* swap corresponding columns in H */
+            /* mirror swap inside H (only H columns affected) */
             for (l = 0; l < M; l++) {
               Hcol_buf[l] = H[l][k - M];
               H[l][k - M] = H[l][j - M];
@@ -210,23 +235,18 @@ void generate_Gmatrix(int **H, int **G, int N, int wc, int wr) {
     }
 
     /* eliminate other rows */
-    for (i = 0; i < N; i++) {
-      if (i != pivot_row && X[i][j] == 1) {
+    for (i = 0; i < N; i++)
+      if (i != pivot_row && X[i][j] == 1)
         for (k = 0; k < M + N; k++)
           X[i][k] ^= X[pivot_row][k];
-      }
-    }
   }
 
-  /* ------------------------------------------------------------
-   * Step 4: Extract generator matrix G  (K × N block)
-   * G = X[M...N-1][M...M+N-1]
-   * ------------------------------------------------------------ */
+  /* ----------------------- Step 4: Extract G (K×N) ----------------------- */
   for (i = M; i < N; i++)
     for (j = M; j < M + N; j++)
       G[i - M][j - M] = X[i][j];
 
-  /* free memory */
+  /* cleanup */
   for (i = 0; i < N; i++)
     free(X[i]);
   free(X);
@@ -235,47 +255,56 @@ void generate_Gmatrix(int **H, int **G, int N, int wc, int wr) {
   free(Hcol_buf);
 }
 
-/* ================================================================
- * 3. Count 4-cycles in LDPC H matrix (structure analysis)
- * ----------------------------------------------------------------
- * 4-cycle = two variable nodes sharing ≥2 check nodes.
- * This function counts all such cycles.
- * ================================================================ */
+/* ========================================================================== */
+/* 3. 4-Cycle Counting in LDPC Parity-Check Matrix */
+/* -------------------------------------------------------------------------- */
+/*
+ * A 4-cycle exists when two variable nodes share ≥2 check nodes.
+ * Short cycles harm message-passing performance (SPA/BP).
+ *
+ * This function:
+ *   - Builds adjacency lists of check nodes for each variable
+ *   - Counts the number of pairs of columns sharing ≥2 rows
+ *   - Counts multiplicities using nC2 = shared! / (2!(shared-2)!)
+ *
+ * A good LDPC code strives to minimize such 4-cycles.
+ */
+/* ========================================================================== */
 static int factorial(int n) {
-  int i, f = 1;
-  for (i = 1; i <= n; i++)
+  int f = 1;
+  for (int i = 1; i <= n; i++)
     f *= i;
   return f;
 }
 
 int count_floop(int **H, int N, int wc, int wr) {
-  int i, j, k, l;
   int M = (N * wc) / wr;
 
+  /* store row positions of '1's for each column */
   int **var_nodes = (int **)malloc(N * sizeof(int *));
-  for (i = 0; i < N; i++)
+  for (int i = 0; i < N; i++)
     var_nodes[i] = (int *)malloc(wc * sizeof(int));
 
-  /* Construct variable-node adjacency list */
-  for (j = 0; j < N; j++) {
+  /* build adjacency list: var_nodes[j][*] = rows where H[row][j] = 1 */
+  for (int j = 0; j < N; j++) {
     int idx = 0;
-    for (i = 0; i < M; i++) {
-      if (H[i][j]) {
+    for (int i = 0; i < M; i++) {
+      if (H[i][j])
         var_nodes[j][idx++] = i;
-        if (idx == wc)
-          break;
-      }
+      if (idx == wc)
+        break;
     }
   }
 
   int floop = 0;
 
-  /* Count pairs of columns that share check nodes */
-  for (i = 0; i < N - 1; i++) {
-    for (j = i + 1; j < N; j++) {
+  /* Count column pairs sharing ≥2 check nodes (4-cycles) */
+  for (int i = 0; i < N - 1; i++) {
+    for (int j = i + 1; j < N; j++) {
+
       int shared = 0;
-      for (k = 0; k < wc; k++)
-        for (l = 0; l < wc; l++)
+      for (int k = 0; k < wc; k++)
+        for (int l = 0; l < wc; l++)
           if (var_nodes[i][k] == var_nodes[j][l])
             shared++;
 
@@ -284,8 +313,8 @@ int count_floop(int **H, int N, int wc, int wr) {
     }
   }
 
-  /* free */
-  for (i = 0; i < N; i++)
+  /* cleanup */
+  for (int i = 0; i < N; i++)
     free(var_nodes[i]);
   free(var_nodes);
 

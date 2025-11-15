@@ -1,33 +1,41 @@
 # fec-ldpc-codec
 
-![Build](https://github.com/fujiyama-kota-comm/fec-ldpc-codec/actions/workflows/c-cpp.yml/badge.svg)
+![Build](https://githubgithub.com/fujiyama-kota-comm/fec-ldpc-codec/actions/workflows/c-cpp.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Version](https://img.shields.io/github/v/tag/fujiyama-kota-comm/fec-ldpc-codec)
 
-C implementation of **LDPC (Low-Density Parity Check) codes**
-with **Sum-Product Algorithm (SPA) decoding**, **BPSK modulation**, and
-**AWGN BER simulation**.
+C implementation of **Low-Density Parity-Check (LDPC) codes** with:
+
+- **Gallager-type LDPC matrix construction**
+- **Systematic LDPC encoding (GF(2))**
+- **Sum-Product Algorithm (SPA) decoding (LLR-domain)**
+- **BPSK modulation + AWGN channel**
+- **Eb/N0 BER simulation**
+- **Python plotting scripts with automatic parameter detection**
+
+Designed for **FEC research**, **communication systems**, and **educational use**.
 
 ---
 
 ## 📘 Overview
 
-This repository provides a lightweight and modular implementation of
-**LDPC codes**, including:
+This repository provides a fully modular and research-friendly LDPC codec:
 
-- LDPC matrix loading from CSV (`H.csv` & `G.csv`)
-- Systematic LDPC encoder
-- Sum-Product Algorithm (SPA) LDPC decoder (LLR domain)
-- BPSK modulation + AWGN channel
-- BER simulation vs Eb/N0
-- Interactive matrix folder selection
-- Python plotting scripts (PNG/SVG support)
+- Generate LDPC matrices *(Gallager regular (N, wc, wr) codes)*
+- Construct systematic generator matrix **G** from parity-check **H**
+- Encode LDPC codewords: `c = u × G  (GF(2))`
+- Decode via **SPA (LLR-domain Sum-Product Algorithm)**
+- Add AWGN channel noise
+- Measure BER vs Eb/N0
+- Auto-select LDPC matrices at runtime
+- Auto-load BER CSV files for plotting
 
-⚠ **Note:**
-This implementation is **not based on standardized LDPC codes**
-(e.g., *5G NR Base Graph 1/2*, *IEEE 802.11n/ac*, *DVB-S2*).
-The LDPC matrices used here follow **Gallager-type (N, wc, wr)** random constructions,
-intended for research and educational purposes.
+⚠ **Note**
+
+This implementation does **not** replicate standardized LDPC codes
+(5G NR Base Graphs, DVB-S2, Wi-Fi 802.11n/ac, etc.).
+H/G matrices are **Gallager-type random regular LDPC codes**,
+intended for research, education, and experiments.
 
 ---
 
@@ -35,66 +43,87 @@ intended for research and educational purposes.
 
 ```
 fec-ldpc-codec
-├── src/                 # Encoder/decoder core implementation
-├── include/             # Public header files
-├── matrices/            # LDPC H,G matrix sets (CSV)
-├── mains/               # BER simulation programs
-├── results/             # Generated BER CSV files
+├── src/                 # Encoder/decoder core
+├── include/             # Public headers
+├── matrices/            # LDPC (H,G) matrices (CSV)
+├── mains/               # BER simulation & matrix generator
+├── results/             # BER CSV files (auto-named)
 ├── images/              # BER plots (PNG/SVG)
 ├── python/              # Plotting scripts
 ├── .github/workflows/   # CI (GCC build)
-├── Makefile             # Build rules
-└── README.md            # This document
+├── Makefile             # Build
+└── README.md
 ```
 
 ---
 
 ## 📑 Features
 
-### ✔ LDPC Matrix Handling
-- Loads **H.csv** and **G.csv** from:
+### ✔ LDPC Matrix Handling (H/G)
+- Loads matrices from:
   ```
-  matrices/N{N}_wc{wc}_wr{wr}/
+  matrices/N{N}_wc{wc}_wr{wr}/H.csv
+  matrices/N{N}_wc{wc}_wr{wr}/G.csv
   ```
-- Interactive folder selection at runtime
-- CSV-based, easy to edit or generate externally
-
----
+- Interactive folder selection
+- CSV-based, human-editable
 
 ### ✔ LDPC Encoder (Systematic)
-Encodes with:
+Fast XOR-based GF(2) linear encoding:
 
 ```
-code[i] = Σ_j inf[j] · G[j][i]  mod 2
+code[i] = Σ_j  (inf[j] & G[j][i])  mod 2
 ```
-
-Simple & fast GF(2) XOR accumulation.
-
----
 
 ### ✔ SPA LDPC Decoder
 LLR-domain Sum-Product Algorithm:
 
 - Check-node update (log-domain SPF)
 - Variable-node update
-- Parity-check validation
-- Early stopping
-- Research-friendly, fully readable reference implementation
+- Parity-check verification
+- Early stopping enabled
+- Clear, research-friendly implementation
 
 ---
 
-### ✔ AWGN BER Simulation
-- BPSK mapping (0 → -1, 1 → +1)
-- Noise generation using **Box–Muller**
-- LLR computation:
+## ✔ Gallager LDPC Matrix Generator
+Provided in `mains/gene_hg.c`:
+
+- Regular LDPC construction (wc, wr)
+- Gaussian elimination for systematic **G**
+- 4-cycle counting
+- Searches for minimum-4-cycle H/G pair
+- Outputs:
+  - `H.csv`
+  - `G.csv`
+  - `info.txt`
+
+---
+
+## ✔ AWGN BER Simulation
+
+- BPSK mapping
+  ```
+  0 → -1
+  1 → +1
+  ```
+- Gaussian noise from Box–Muller
+- LLR formula:
   ```
   LLR = 2y / σ²
   ```
-- Eb/N0 sweep
-- Output:
-  ```
-  results/ldpc_ber.csv
-  ```
+- SPA decoding (configurable max_iter)
+- Output filename automatically includes parameters:
+
+```
+results/ldpc_ber_N{N}_wc{wc}_wr{wr}_iter{iter}_data.csv
+```
+
+Example:
+
+```
+results/ldpc_ber_N1024_wc3_wr6_iter40_data.csv
+```
 
 ---
 
@@ -105,21 +134,20 @@ LLR-domain Sum-Product Algorithm:
 - `make`
 - Linux / macOS / WSL / MinGW
 
----
-
 ### Build
 
 ```sh
 make
 ```
 
-Generated binary:
+Produces:
 
 ```
-ldpc_ber   # BER simulation program
+ldpc_ber      # BER simulator
+gene_hg       # LDPC matrix generator
 ```
 
-Clean build:
+Clean:
 
 ```sh
 make clean
@@ -129,13 +157,13 @@ make clean
 
 ## 🚀 Usage Example
 
-Run BER simulation:
+### 1. BER Simulation
 
 ```sh
 ./ldpc_ber
 ```
 
-Interactive folder selection:
+Folder selection example:
 
 ```
 Available LDPC matrix folders:
@@ -144,25 +172,32 @@ Available LDPC matrix folders:
 Select folder index:
 ```
 
-Output CSV:
+Outputs a parameter-tagged CSV:
 
 ```
-results/ldpc_ber.csv
+results/ldpc_ber_N1024_wc3_wr6_iter40_data.csv
 ```
 
 ---
 
 ## 📉 BER Performance
 
-Example BER graph for rate-1/2 LDPC (N=1024, SPA-40iter, AWGN, BPSK):
+Example (N=1024, wc=3, wr=6, SPA=40):
 
-![BER graph](images/ldpc_ber_graph.png)
+![BER graph](images/ldpc_ber_N1024_wc3_wr6_iter40.svg)
 
-Generated by:
+Generated via:
 
 ```sh
 python python/plot_ldpc_ber.py
 ```
+
+Plot script automatically annotates:
+
+- N
+- wc, wr
+- Rate R
+- SPA iterations
 
 ---
 
@@ -171,22 +206,22 @@ python python/plot_ldpc_ber.py
 ### src/
 | File | Description |
 |------|-------------|
-| `ldpc_encoder.c` | Systematic LDPC encoder |
-| `ldpc_decoder.c` | SPA LDPC decoder |
-| `ldpc_matrix.c`  | Matrix allocation & CSV loading |
+| `ldpc_encoder.c` | Systematic encoder |
+| `ldpc_decoder.c` | SPA decoder |
+| `ldpc_matrix.c`  | H/G handling utilities |
 
 ### include/
 | File | Description |
 |------|-------------|
 | `ldpc_encoder.h` | Encoder API |
-| `ldpc_decoder.h` | Decoder API |
-| `ldpc_matrix.h`  | Matrix loading API |
+| `ldpc_decoder.h` | SPA API |
+| `ldpc_matrix.h`  | Matrix API |
 
 ### mains/
 | File | Description |
 |------|-------------|
-| `ldpc_ber.c` | BER simulation under AWGN |
-| `gene_hg.c`  | Generate LDPC matrices (Gallager-type `(N, wc, wr)` construction) |
+| `ldpc_ber.c` | BER simulation |
+| `gene_hg.c`  | LDPC matrix generator |
 
 ### python/
 | File | Description |
@@ -197,30 +232,29 @@ python python/plot_ldpc_ber.py
 
 ## 🔒 Confidentiality Notice
 
-All source code in this repository was developed independently
-based solely on public standards (e.g., academic LDPC literature).
-No confidential or proprietary information from any company,
-internship, or NDA-protected source is used.
+All source code in this repository was developed **independently**,
+based only on **public standards and academic knowledge**.
+
+No confidential, proprietary, or NDA-restricted information is used.
 
 ---
 
 ## 📜 License
 
-This project is licensed under the **MIT License**.
-You may use it for research, education, and commercial applications.
+MIT License — free for research, education, and commercial use.
 
 ---
 
 ## 🤝 Contributing
 
-Pull requests are welcome.
-For major changes, please open an issue first.
+Pull requests welcome!
+For significant changes, please open an issue first.
 
 ---
 
 ## ⭐ Acknowledgements
 
-Developed as part of research in
-**Forward Error Correction (FEC)** and **physical-layer communications**.
+Developed as part of research in **Forward Error Correction (FEC)**
+and **physical-layer wireless communications**.
 
-If this repository is useful, please consider giving it a ⭐ on GitHub!
+If this repository helps you, please consider giving it a ⭐!
