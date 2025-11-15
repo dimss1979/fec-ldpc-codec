@@ -1,0 +1,8 @@
+LDPC Matrix Generation Status
+Code rate R = 0.50000
+N = 2048
+wc = 3
+wr = 6
+Loop count = 69
+Best 4-cycles = 26
+Average 4-cycles = 38.130
