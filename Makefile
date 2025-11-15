@@ -2,68 +2,83 @@ CC      = gcc
 CFLAGS  = -O2 -Wall -std=c99 -Iinclude
 LDFLAGS = -lm
 
+# ============================================================
+# Sources
+# ============================================================
 SRC = \
-    src/nsc_encoder.c \
-    src/nsc_decoder.c \
-    src/trellis.c
+    src/ldpc_matrix.c \
+    src/ldpc_encoder.c \
+    src/ldpc_decoder.c
 
 OBJ = $(SRC:.c=.o)
 
-TEST_SRC = examples/main_test.c
-TEST_OBJ = $(TEST_SRC:.c=.o)
+# Example program
+GENE_HG_SRC = mains/gene_hg.c
+GENE_HG_OBJ = $(GENE_HG_SRC:.c=.o)
 
+# BER program
+LDPC_BER_SRC = mains/ldpc_ber.c
+LDPC_BER_OBJ = $(LDPC_BER_SRC:.c=.o)
+
+# Output dir
 BIN_DIR = bin
-TARGET_NAME = main_test
 
-# OS によって実行ファイル名を切り替え
+# OS-dependent executables
 ifeq ($(OS),Windows_NT)
-    TARGET = $(BIN_DIR)/$(TARGET_NAME).exe
+    GENE_HG_TARGET = $(BIN_DIR)/gene_hg.exe
+    LDPC_BER_TARGET = $(BIN_DIR)/ldpc_ber.exe
+    RUN_GENE_HG = $(GENE_HG_TARGET)
+    RUN_LDPC_BER = $(LDPC_BER_TARGET)
 else
-    TARGET = $(BIN_DIR)/$(TARGET_NAME)
+    GENE_HG_TARGET = $(BIN_DIR)/gene_hg
+    LDPC_BER_TARGET = $(BIN_DIR)/ldpc_ber
+    RUN_GENE_HG = ./$(GENE_HG_TARGET)
+    RUN_LDPC_BER = ./$(LDPC_BER_TARGET)
 endif
 
 # ============================================================
-#  Build rules
+# Build rules
 # ============================================================
+all: $(GENE_HG_TARGET) $(LDPC_BER_TARGET)
 
-all: $(TARGET)
-
-# Create bin directory (cross-platform)
+# Create bin directory
 $(BIN_DIR):
 	@if [ ! -d "$(BIN_DIR)" ]; then \
 		mkdir -p $(BIN_DIR) 2>/dev/null || mkdir $(BIN_DIR); \
 	fi
 
-$(TARGET): $(BIN_DIR) $(OBJ) $(TEST_OBJ)
-	$(CC) $(CFLAGS) -o $@ $(OBJ) $(TEST_OBJ) $(LDFLAGS)
+$(GENE_HG_TARGET): $(BIN_DIR) $(OBJ) $(GENE_HG_OBJ)
+	$(CC) $(CFLAGS) -o $@ $(OBJ) $(GENE_HG_OBJ) $(LDFLAGS)
+
+$(LDPC_BER_TARGET): $(BIN_DIR) $(OBJ) $(LDPC_BER_OBJ)
+	$(CC) $(CFLAGS) -o $@ $(OBJ) $(LDPC_BER_OBJ) $(LDFLAGS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # ============================================================
-#  Run
+# Run commands
 # ============================================================
-run: $(TARGET)
-	./$(TARGET)
+gene_hg: $(GENE_HG_TARGET)
+	$(RUN_GENE_HG)
+
+ldpc_ber: $(LDPC_BER_TARGET)
+	$(RUN_LDPC_BER)
 
 # ============================================================
-#  Clean (Windows + Linux 完全対応)
+# Clean
 # ============================================================
 clean:
 	@echo "Cleaning object files..."
-	rm -f $(OBJ) $(TEST_OBJ)
+	rm -f $(OBJ) $(GENE_HG_OBJ) $(LDPC_BER_OBJ)
 
 	@echo "Cleaning binaries..."
-	# Windows .exe 削除
-	@if [ -f "$(BIN_DIR)/$(TARGET_NAME).exe" ]; then rm -f "$(BIN_DIR)/$(TARGET_NAME).exe"; fi
+	@if [ -f "$(GENE_HG_TARGET)" ]; then rm -f "$(GENE_HG_TARGET)"; fi
+	@if [ -f "$(LDPC_BER_TARGET)" ]; then rm -f "$(LDPC_BER_TARGET)"; fi
 
-	# Linux/macOS バイナリ削除
-	@if [ -f "$(BIN_DIR)/$(TARGET_NAME)" ]; then rm -f "$(BIN_DIR)/$(TARGET_NAME)"; fi
-
-	# bin フォルダ内が空なら削除
 	@if [ -d "$(BIN_DIR)" ] && [ ! "$$(ls -A $(BIN_DIR))" ]; then \
 		echo "Removing empty bin directory"; \
 		rmdir $(BIN_DIR); \
 	fi
 
-.PHONY: all clean run
+.PHONY: all clean gene_hg ldpc_ber
